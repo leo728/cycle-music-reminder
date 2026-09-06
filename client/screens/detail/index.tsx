@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react';
-import { View, Text, Pressable, StyleSheet, FlatList, Alert } from 'react-native';
+import { View, Text, Pressable, StyleSheet, FlatList } from 'react-native';
 import { Screen } from '@/components/Screen';
 import { useCycles } from '@/contexts/CycleContext';
 import { useSafeSearchParams, useSafeRouter } from '@/hooks/useSafeRouter';
@@ -10,6 +10,7 @@ import {
   getDayDate,
   getDayStatus,
   formatDateShort,
+  getTasksForDay,
 } from '@/utils/storage';
 import { FontAwesome6 } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
@@ -18,9 +19,10 @@ interface DayItem {
   dayNumber: number;
   date: string;
   status: 'completed' | 'today' | 'future';
+  taskCount: number;
 }
 
-function DayRow({ item }: { item: DayItem }) {
+function DayRow({ item, onPress }: { item: DayItem; onPress: () => void }) {
   const statusConfig = {
     completed: { icon: 'check-circle' as const, color: '#10B981', label: '已完成' },
     today: { icon: 'circle-dot' as const, color: '#2563EB', label: '今天' },
@@ -29,7 +31,7 @@ function DayRow({ item }: { item: DayItem }) {
   const cfg = statusConfig[item.status];
 
   return (
-    <View style={dayStyles.row}>
+    <Pressable onPress={onPress} style={dayStyles.row}>
       <View style={dayStyles.left}>
         <View style={[dayStyles.dayBadge, item.status === 'today' && dayStyles.dayBadgeActive]}>
           <Text
@@ -47,6 +49,11 @@ function DayRow({ item }: { item: DayItem }) {
         </View>
       </View>
       <View style={dayStyles.right}>
+        {item.taskCount > 0 && (
+          <View style={dayStyles.taskCountBadge}>
+            <Text style={dayStyles.taskCountText}>{item.taskCount}</Text>
+          </View>
+        )}
         {cfg.label ? (
           <View style={[dayStyles.statusTag, { backgroundColor: cfg.color + '15' }]}>
             <FontAwesome6 name={cfg.icon} size={12} color={cfg.color} />
@@ -56,7 +63,7 @@ function DayRow({ item }: { item: DayItem }) {
           <FontAwesome6 name={cfg.icon} size={16} color={cfg.color} />
         )}
       </View>
-    </View>
+    </Pressable>
   );
 }
 
@@ -121,10 +128,22 @@ const dayStyles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
+  taskCountBadge: {
+    backgroundColor: '#F1F5F9',
+    borderRadius: 10,
+    paddingVertical: 2,
+    paddingHorizontal: 7,
+    marginRight: 4,
+  },
+  taskCountText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#64748B',
+  },
 });
 
 export default function CycleDetailScreen() {
-  const { cycles, refreshCycles } = useCycles();
+  const { cycles, tasks, refreshCycles } = useCycles();
   const params = useSafeSearchParams<{ cycleId: string }>();
   const router = useSafeRouter();
 
@@ -140,13 +159,15 @@ export default function CycleDetailScreen() {
     if (!cycle) return [];
     return Array.from({ length: cycle.totalDays }, (_, i) => {
       const dayNumber = i + 1;
+      const taskCount = getTasksForDay(tasks, cycle.id, dayNumber).length;
       return {
         dayNumber,
         date: getDayDate(cycle, dayNumber),
         status: getDayStatus(cycle, dayNumber),
+        taskCount,
       };
     });
-  }, [cycle]);
+  }, [cycle, tasks]);
 
   if (!cycle) {
     return (
@@ -236,7 +257,14 @@ export default function CycleDetailScreen() {
         <FlatList
           data={dayItems}
           keyExtractor={(item) => String(item.dayNumber)}
-          renderItem={({ item }) => <DayRow item={item} />}
+          renderItem={({ item }) => (
+            <DayRow
+              item={item}
+              onPress={() =>
+                router.push('/day-tasks', { cycleId: cycle.id, dayNumber: item.dayNumber })
+              }
+            />
+          )}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
           ListEmptyComponent={
@@ -248,7 +276,7 @@ export default function CycleDetailScreen() {
             <View style={styles.listFooter}>
               <FontAwesome6 name="circle-info" size={14} color="#94A3B8" />
               <Text style={styles.listFooterText}>
-                点击某天可编辑任务（后续版本开放）
+                点击某天可管理当天的任务
               </Text>
             </View>
           }

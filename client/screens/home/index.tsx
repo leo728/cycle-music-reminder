@@ -1,25 +1,59 @@
-import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { useCallback, useMemo } from 'react';
+import { View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
 import { Screen } from '@/components/Screen';
 import { useCycles } from '@/contexts/CycleContext';
 import { useSafeRouter } from '@/hooks/useSafeRouter';
-import { getCycleStatus, getCurrentDay, getDayDate, formatDateShort } from '@/utils/storage';
+import {
+  getCycleStatus,
+  getCurrentDay,
+  getDayDate,
+  formatDateShort,
+  getTodayTasks,
+  getNextTask,
+  getTomorrowFirstTask,
+} from '@/utils/storage';
 import { FontAwesome6 } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
-import { useCallback } from 'react';
 
 export default function HomeScreen() {
-  const { activeCycle, refreshCycles } = useCycles();
+  const { activeCycle, tasks, refreshCycles, refreshTasks } = useCycles();
   const router = useSafeRouter();
 
-  // Refresh data when screen comes into focus
   useFocusEffect(
     useCallback(() => {
       refreshCycles();
-    }, [refreshCycles]),
+      refreshTasks();
+    }, [refreshCycles, refreshTasks]),
   );
 
   const today = new Date();
   const todayStr = `${today.getMonth() + 1}月${today.getDate()}日`;
+
+  const todayTaskList = useMemo(() => {
+    if (!activeCycle) return [];
+    const status = getCycleStatus(activeCycle);
+    if (status !== 'in_progress') return [];
+    return getTodayTasks(tasks, activeCycle);
+  }, [tasks, activeCycle]);
+
+  const nextTaskInfo = useMemo(() => {
+    if (!activeCycle) return null;
+    const status = getCycleStatus(activeCycle);
+    if (status !== 'in_progress') return null;
+
+    const next = getNextTask(tasks, activeCycle);
+    if (next) {
+      return { type: 'today' as const, task: next };
+    }
+
+    // Today's enabled tasks are all done, check tomorrow
+    const tomorrow = getTomorrowFirstTask(tasks, activeCycle);
+    if (tomorrow) {
+      return { type: 'tomorrow' as const, task: tomorrow.task, dayNumber: tomorrow.dayNumber };
+    }
+
+    return null;
+  }, [tasks, activeCycle]);
 
   if (!activeCycle) {
     return (
@@ -31,10 +65,7 @@ export default function HomeScreen() {
           <Text style={styles.emptyTitle}>周期音乐提醒</Text>
           <Text style={styles.emptySubtitle}>还没有周期计划</Text>
           <Text style={styles.emptyHint}>创建一个周期，开始规划你的音乐日程</Text>
-          <Pressable
-            style={styles.primaryButton}
-            onPress={() => router.push('/create')}
-          >
+          <Pressable style={styles.primaryButton} onPress={() => router.push('/create')}>
             <FontAwesome6 name="plus" size={16} color="#FFFFFF" style={{ marginRight: 8 }} />
             <Text style={styles.primaryButtonText}>创建周期</Text>
           </Pressable>
@@ -49,7 +80,10 @@ export default function HomeScreen() {
 
   return (
     <Screen>
-      <View style={styles.container}>
+      <ScrollView
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Header */}
         <View style={styles.header}>
           <Text style={styles.appName}>周期音乐提醒</Text>
@@ -63,10 +97,7 @@ export default function HomeScreen() {
               <View style={styles.activeDot} />
               <Text style={styles.activeBadgeText}>进行中</Text>
             </View>
-            <Pressable
-              onPress={() => router.push('/list')}
-              style={styles.viewAllBtn}
-            >
+            <Pressable onPress={() => router.push('/list')} style={styles.viewAllBtn}>
               <Text style={styles.viewAllText}>全部周期</Text>
               <FontAwesome6 name="chevron-right" size={12} color="#2563EB" />
             </Pressable>
@@ -100,12 +131,83 @@ export default function HomeScreen() {
           <View style={styles.sectionHeader}>
             <FontAwesome6 name="list-check" size={16} color="#2563EB" />
             <Text style={styles.sectionTitle}>今天的任务</Text>
+            {todayTaskList.length > 0 && (
+              <Text style={styles.sectionCount}>{todayTaskList.length} 个</Text>
+            )}
           </View>
-          <View style={styles.placeholderWrap}>
-            <FontAwesome6 name="clock" size={24} color="#CBD5E1" />
-            <Text style={styles.placeholderText}>任务功能即将上线</Text>
-            <Text style={styles.placeholderHint}>后续版本可为每天添加定时音乐任务</Text>
-          </View>
+
+          {todayTaskList.length === 0 ? (
+            <View style={styles.placeholderWrap}>
+              <FontAwesome6 name="inbox" size={24} color="#CBD5E1" />
+              <Text style={styles.placeholderText}>今天还没有任务</Text>
+              <Pressable
+                style={styles.inlineAddBtn}
+                onPress={() =>
+                  router.push('/day-tasks', {
+                    cycleId: activeCycle.id,
+                    dayNumber: currentDay,
+                  })
+                }
+              >
+                <Text style={styles.inlineAddBtnText}>去添加任务</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <View style={styles.taskListWrap}>
+              {todayTaskList.map((task) => (
+                <View key={task.id} style={styles.miniTaskRow}>
+                  <View style={styles.miniTaskTime}>
+                    <Text
+                      style={[
+                        styles.miniTaskTimeText,
+                        !task.isEnabled && styles.miniTaskTimeTextDisabled,
+                      ]}
+                    >
+                      {task.time}
+                    </Text>
+                  </View>
+                  <Text
+                    style={[
+                      styles.miniTaskName,
+                      !task.isEnabled && styles.miniTaskNameDisabled,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {task.name}
+                  </Text>
+                  <View
+                    style={[
+                      styles.miniTaskStatus,
+                      {
+                        backgroundColor: task.isEnabled ? '#DBEAFE' : '#F1F5F9',
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.miniTaskStatusText,
+                        { color: task.isEnabled ? '#2563EB' : '#94A3B8' },
+                      ]}
+                    >
+                      {task.isEnabled ? '开启' : '关闭'}
+                    </Text>
+                  </View>
+                </View>
+              ))}
+              <Pressable
+                style={styles.viewDayBtn}
+                onPress={() =>
+                  router.push('/day-tasks', {
+                    cycleId: activeCycle.id,
+                    dayNumber: currentDay,
+                  })
+                }
+              >
+                <Text style={styles.viewDayBtnText}>管理今日任务</Text>
+                <FontAwesome6 name="chevron-right" size={12} color="#2563EB" />
+              </Pressable>
+            </View>
+          )}
         </View>
 
         {/* Next Task Section */}
@@ -114,11 +216,32 @@ export default function HomeScreen() {
             <FontAwesome6 name="bell" size={16} color="#F59E0B" />
             <Text style={styles.sectionTitle}>下一次任务</Text>
           </View>
-          <View style={styles.placeholderWrap}>
-            <FontAwesome6 name="music" size={24} color="#CBD5E1" />
-            <Text style={styles.placeholderText}>暂无待播放任务</Text>
-            <Text style={styles.placeholderHint}>添加任务后将在此显示下一次提醒</Text>
-          </View>
+
+          {nextTaskInfo ? (
+            <View style={styles.nextTaskContent}>
+              <View style={styles.nextTaskIcon}>
+                <FontAwesome6 name="music" size={20} color="#2563EB" />
+              </View>
+              <View style={styles.nextTaskInfo}>
+                <Text style={styles.nextTaskTime}>
+                  {nextTaskInfo.type === 'tomorrow' ? '明天 ' : '今天 '}
+                  <Text style={styles.nextTaskTimeHighlight}>{nextTaskInfo.task.time}</Text>
+                </Text>
+                <Text style={styles.nextTaskName}>{nextTaskInfo.task.name}</Text>
+              </View>
+            </View>
+          ) : todayTaskList.length > 0 ? (
+            <View style={styles.placeholderWrap}>
+              <FontAwesome6 name="circle-check" size={24} color="#10B981" />
+              <Text style={styles.placeholderText}>今天的任务已全部结束</Text>
+            </View>
+          ) : (
+            <View style={styles.placeholderWrap}>
+              <FontAwesome6 name="music" size={24} color="#CBD5E1" />
+              <Text style={styles.placeholderText}>暂无待执行任务</Text>
+              <Text style={styles.placeholderHint}>添加任务后将在此显示下一次提醒</Text>
+            </View>
+          )}
         </View>
 
         {/* Navigate to detail */}
@@ -129,16 +252,16 @@ export default function HomeScreen() {
           <Text style={styles.detailButtonText}>查看周期详情</Text>
           <FontAwesome6 name="arrow-right" size={14} color="#FFFFFF" />
         </Pressable>
-      </View>
+      </ScrollView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
+  scrollContent: {
     paddingHorizontal: 20,
     paddingTop: 8,
+    paddingBottom: 32,
   },
   emptyContainer: {
     flex: 1,
@@ -303,10 +426,16 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#0F172A',
     marginLeft: 8,
+    flex: 1,
+  },
+  sectionCount: {
+    fontSize: 13,
+    color: '#94A3B8',
+    fontWeight: '500',
   },
   placeholderWrap: {
     alignItems: 'center',
-    paddingVertical: 20,
+    paddingVertical: 16,
   },
   placeholderText: {
     fontSize: 14,
@@ -318,6 +447,104 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#CBD5E1',
     marginTop: 4,
+  },
+  inlineAddBtn: {
+    marginTop: 12,
+    backgroundColor: '#2563EB',
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+  },
+  inlineAddBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  taskListWrap: {
+    gap: 0,
+  },
+  miniTaskRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: '#F1F5F9',
+  },
+  miniTaskTime: {
+    width: 50,
+  },
+  miniTaskTimeText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#2563EB',
+    fontVariant: ['tabular-nums'],
+  },
+  miniTaskTimeTextDisabled: {
+    color: '#CBD5E1',
+  },
+  miniTaskName: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: '500',
+    color: '#0F172A',
+    marginHorizontal: 8,
+  },
+  miniTaskNameDisabled: {
+    color: '#94A3B8',
+  },
+  miniTaskStatus: {
+    borderRadius: 10,
+    paddingVertical: 3,
+    paddingHorizontal: 8,
+  },
+  miniTaskStatusText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  viewDayBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 12,
+    gap: 4,
+  },
+  viewDayBtnText: {
+    fontSize: 14,
+    color: '#2563EB',
+    fontWeight: '600',
+  },
+  nextTaskContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  nextTaskIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#DBEAFE',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 14,
+  },
+  nextTaskInfo: {
+    flex: 1,
+    gap: 3,
+  },
+  nextTaskTime: {
+    fontSize: 13,
+    color: '#64748B',
+  },
+  nextTaskTimeHighlight: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#2563EB',
+    marginLeft: 4,
+  },
+  nextTaskName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#0F172A',
   },
   detailButton: {
     flexDirection: 'row',

@@ -1,7 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import type { Cycle } from '@/types';
+import type { Cycle, Task } from '@/types';
 
 const CYCLES_STORAGE_KEY = '@cycle_music_reminder:cycles';
+const TASKS_STORAGE_KEY = '@cycle_music_reminder:tasks';
 
 /**
  * Load all cycles from AsyncStorage
@@ -101,4 +102,90 @@ export function getDayStatus(cycle: Cycle, dayNumber: number): 'completed' | 'to
   if (dayDate < today) return 'completed';
   if (dayDate.getTime() === today.getTime()) return 'today';
   return 'future';
+}
+
+// ─── Task Storage ───────────────────────────────────────────────
+
+/**
+ * Load all tasks from AsyncStorage
+ */
+export async function loadTasks(): Promise<Task[]> {
+  try {
+    const raw = await AsyncStorage.getItem(TASKS_STORAGE_KEY);
+    if (!raw) return [];
+    return JSON.parse(raw) as Task[];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Save all tasks to AsyncStorage
+ */
+export async function saveTasks(tasks: Task[]): Promise<void> {
+  await AsyncStorage.setItem(TASKS_STORAGE_KEY, JSON.stringify(tasks));
+}
+
+/**
+ * Get tasks for a specific cycle and day, sorted by time
+ */
+export function getTasksForDay(tasks: Task[], cycleId: string, dayNumber: number): Task[] {
+  return tasks
+    .filter((t) => t.cycleId === cycleId && t.dayNumber === dayNumber)
+    .sort((a, b) => a.time.localeCompare(b.time));
+}
+
+/**
+ * Get tasks for today from the active cycle
+ */
+export function getTodayTasks(tasks: Task[], cycle: Cycle): Task[] {
+  const currentDay = getCurrentDay(cycle);
+  return getTasksForDay(tasks, cycle.id, currentDay);
+}
+
+/**
+ * Check if a time slot already has a task on a given day
+ */
+export function hasTimeConflict(
+  tasks: Task[],
+  cycleId: string,
+  dayNumber: number,
+  time: string,
+  excludeTaskId?: string,
+): boolean {
+  return tasks.some(
+    (t) =>
+      t.cycleId === cycleId &&
+      t.dayNumber === dayNumber &&
+      t.time === time &&
+      t.id !== excludeTaskId,
+  );
+}
+
+/**
+ * Get the next upcoming enabled task from today's tasks
+ */
+export function getNextTask(tasks: Task[], cycle: Cycle): Task | null {
+  const todayTasks = getTodayTasks(tasks, cycle);
+  const now = new Date();
+  const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+
+  return (
+    todayTasks.find((t) => t.isEnabled && t.time > currentTime) ?? null
+  );
+}
+
+/**
+ * Get tomorrow's first enabled task from the active cycle
+ */
+export function getTomorrowFirstTask(tasks: Task[], cycle: Cycle): { task: Task; dayNumber: number } | null {
+  const currentDay = getCurrentDay(cycle);
+  const tomorrowDay = currentDay + 1;
+  if (tomorrowDay > cycle.totalDays) return null;
+
+  const tomorrowTasks = getTasksForDay(tasks, cycle.id, tomorrowDay);
+  const firstEnabled = tomorrowTasks.find((t) => t.isEnabled);
+  if (!firstEnabled) return null;
+
+  return { task: firstEnabled, dayNumber: tomorrowDay };
 }

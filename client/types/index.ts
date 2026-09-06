@@ -9,17 +9,18 @@ export interface Cycle {
   createdAt: string; // ISO timestamp
 }
 
-// Task type - reserved for future phases (Phase 2+)
+// Task type - Phase 2 implementation
 export interface Task {
   id: string;
   cycleId: string;
-  dayNumber: number;
-  time: string; // HH:MM
+  dayNumber: number; // 1-based day index
+  time: string; // HH:MM (24h)
   name: string;
-  musicFileName: string;
-  musicPath: string;
+  musicFileName: string; // reserved for Phase 4
+  musicPath: string; // reserved for Phase 4
   isEnabled: boolean;
   isCompleted: boolean;
+  createdAt: string; // ISO timestamp
 }
 
 export type CycleStatus = 'not_started' | 'in_progress' | 'completed';
