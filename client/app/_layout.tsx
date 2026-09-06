@@ -27,6 +27,7 @@ export default function RootLayout() {
         <Stack.Screen name="detail" />
         <Stack.Screen name="day-tasks" />
         <Stack.Screen name="permission-guide" />
+        <Stack.Screen name="diagnostic" />
       </Stack>
       <Toast />
     </Provider>

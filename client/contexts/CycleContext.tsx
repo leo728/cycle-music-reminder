@@ -23,8 +23,8 @@ interface CycleContextType {
   updateTask: (task: Task) => Promise<void>;
   deleteTask: (taskId: string) => Promise<void>;
   toggleTaskEnabled: (taskId: string) => Promise<void>;
-  copyPreviousDay: (cycleId: string, dayNumber: number) => Promise<{ success: boolean; count: number }>;
-  copyToAllSubsequentDays: (cycleId: string, dayNumber: number, totalDays: number) => Promise<{ success: boolean; count: number; targetDays: number }>;
+  copyPreviousDay: (cycleId: string, dayNumber: number) => Promise<{ success: boolean; count: number; error?: string }>;
+  copyToAllSubsequentDays: (cycleId: string, dayNumber: number, totalDays: number) => Promise<{ success: boolean; count: number; targetDays: number; error?: string }>;
 }
 
 const CycleContext = createContext<CycleContextType | null>(null);
@@ -164,24 +164,46 @@ export function CycleProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const copyPreviousDay = useCallback(
-    async (cycleId: string, dayNumber: number): Promise<{ success: boolean; count: number }> => {
-      if (dayNumber <= 1) return { success: false, count: 0 };
+    async (cycleId: string, dayNumber: number): Promise<{ success: boolean; count: number; error?: string }> => {
+      try {
+        if (dayNumber <= 1) return { success: false, count: 0, error: '第 1 天没有前一天' };
 
-      const current = await loadTasks();
-      const sourceTasks = current.filter(
-        (t) => t.cycleId === cycleId && t.dayNumber === dayNumber - 1,
-      );
-      if (sourceTasks.length === 0) return { success: false, count: 0 };
+        const current = await loadTasks();
+        console.log('[CopyPreviousDay] Loaded tasks from storage:', current.length, 'total tasks');
+        console.log('[CopyPreviousDay] Looking for cycleId:', cycleId, 'dayNumber:', dayNumber - 1);
 
-      // Remove existing tasks on the target day, then add deep copies
-      const withoutTarget = current.filter(
-        (t) => !(t.cycleId === cycleId && t.dayNumber === dayNumber),
-      );
-      const copied = deepCopyTasks(sourceTasks, cycleId, dayNumber);
-      const updated = [...withoutTarget, ...copied];
-      await saveTasks(updated);
-      setTasks(updated);
-      return { success: true, count: copied.length };
+        const sourceTasks = current.filter(
+          (t) => t.cycleId === cycleId && t.dayNumber === dayNumber - 1,
+        );
+        console.log('[CopyPreviousDay] Found source tasks:', sourceTasks.length);
+
+        if (sourceTasks.length === 0) {
+          console.log('[CopyPreviousDay] No source tasks found. All tasks:', JSON.stringify(current.map(t => ({ id: t.id, cycleId: t.cycleId, dayNumber: t.dayNumber, name: t.name }))));
+          return { success: false, count: 0, error: '前一天没有任务' };
+        }
+
+        // Remove existing tasks on the target day, then add deep copies
+        const withoutTarget = current.filter(
+          (t) => !(t.cycleId === cycleId && t.dayNumber === dayNumber),
+        );
+        const copied = deepCopyTasks(sourceTasks, cycleId, dayNumber);
+        console.log('[CopyPreviousDay] Copied tasks:', copied.length, 'new IDs:', copied.map(t => t.id));
+
+        const updated = [...withoutTarget, ...copied];
+        console.log('[CopyPreviousDay] Saving', updated.length, 'total tasks to storage');
+        await saveTasks(updated);
+
+        // Verify the save was successful
+        const verify = await loadTasks();
+        const targetTasks = verify.filter(t => t.cycleId === cycleId && t.dayNumber === dayNumber);
+        console.log('[CopyPreviousDay] Verification: target day now has', targetTasks.length, 'tasks');
+
+        setTasks(updated);
+        return { success: true, count: copied.length };
+      } catch (error) {
+        console.error('[CopyPreviousDay] Error:', error);
+        return { success: false, count: 0, error: error instanceof Error ? error.message : 'Unknown error' };
+      }
     },
     [],
   );
@@ -191,31 +213,48 @@ export function CycleProvider({ children }: { children: ReactNode }) {
       cycleId: string,
       dayNumber: number,
       totalDays: number,
-    ): Promise<{ success: boolean; count: number; targetDays: number }> => {
-      if (dayNumber >= totalDays) return { success: false, count: 0, targetDays: 0 };
+    ): Promise<{ success: boolean; count: number; targetDays: number; error?: string }> => {
+      try {
+        if (dayNumber >= totalDays) return { success: false, count: 0, targetDays: 0, error: '已经是最后一天' };
 
-      const current = await loadTasks();
-      const sourceTasks = current.filter(
-        (t) => t.cycleId === cycleId && t.dayNumber === dayNumber,
-      );
-      if (sourceTasks.length === 0) return { success: false, count: 0, targetDays: 0 };
+        const current = await loadTasks();
+        console.log('[CopyToAll] Loaded tasks from storage:', current.length, 'total tasks');
+        console.log('[CopyToAll] Source: cycleId:', cycleId, 'dayNumber:', dayNumber);
 
-      const targetDays = totalDays - dayNumber;
+        const sourceTasks = current.filter(
+          (t) => t.cycleId === cycleId && t.dayNumber === dayNumber,
+        );
+        console.log('[CopyToAll] Found source tasks:', sourceTasks.length);
 
-      // Remove existing tasks on all subsequent days, then add deep copies
-      const withoutTargets = current.filter(
-        (t) => !(t.cycleId === cycleId && t.dayNumber > dayNumber),
-      );
+        if (sourceTasks.length === 0) return { success: false, count: 0, targetDays: 0, error: '当天没有任务' };
 
-      const allCopied: Task[] = [];
-      for (let d = dayNumber + 1; d <= totalDays; d++) {
-        allCopied.push(...deepCopyTasks(sourceTasks, cycleId, d));
+        const targetDays = totalDays - dayNumber;
+
+        // Remove existing tasks on all subsequent days, then add deep copies
+        const withoutTargets = current.filter(
+          (t) => !(t.cycleId === cycleId && t.dayNumber > dayNumber),
+        );
+
+        const allCopied: Task[] = [];
+        for (let d = dayNumber + 1; d <= totalDays; d++) {
+          allCopied.push(...deepCopyTasks(sourceTasks, cycleId, d));
+        }
+        console.log('[CopyToAll] Copied', allCopied.length, 'tasks to', targetDays, 'days');
+
+        const updated = [...withoutTargets, ...allCopied];
+        await saveTasks(updated);
+
+        // Verify
+        const verify = await loadTasks();
+        const targetTasks = verify.filter(t => t.cycleId === cycleId && t.dayNumber > dayNumber);
+        console.log('[CopyToAll] Verification: target days now have', targetTasks.length, 'tasks total');
+
+        setTasks(updated);
+        return { success: true, count: sourceTasks.length, targetDays };
+      } catch (error) {
+        console.error('[CopyToAll] Error:', error);
+        return { success: false, count: 0, targetDays: 0, error: error instanceof Error ? error.message : 'Unknown error' };
       }
-
-      const updated = [...withoutTargets, ...allCopied];
-      await saveTasks(updated);
-      setTasks(updated);
-      return { success: true, count: sourceTasks.length, targetDays };
     },
     [],
   );

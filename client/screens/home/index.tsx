@@ -127,6 +127,12 @@ export default function HomeScreen() {
             >
               <FontAwesome6 name="gear" size={18} color="#8B8FA3" />
             </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.settingsButton}
+              onPress={() => router.push('/diagnostic')}
+            >
+              <FontAwesome6 name="stethoscope" size={18} color="#8B8FA3" />
+            </TouchableOpacity>
           </View>
           <Text style={styles.todayDate}>{todayStr}</Text>
         </View>

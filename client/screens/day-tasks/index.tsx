@@ -256,7 +256,7 @@ export default function DayTasksScreen() {
         await refreshTasks();
         Alert.alert('复制成功', `已复制前一天的 ${result.count} 个任务`);
       } else {
-        Alert.alert('复制失败', '无法复制前一天的任务，请重试');
+        Alert.alert('复制失败', result.error || '无法复制前一天的任务，请重试');
       }
     };
 
@@ -311,7 +311,7 @@ export default function DayTasksScreen() {
               await refreshTasks();
               Alert.alert('复制成功', `已复制到之后 ${result.targetDays} 天`);
             } else {
-              Alert.alert('复制失败', '无法复制到之后的天数，请重试');
+              Alert.alert('复制失败', result.error || '无法复制到之后的天数，请重试');
             }
           },
         },

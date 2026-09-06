@@ -98,3 +98,29 @@ export async function deleteMusicFile(path: string): Promise<void> {
     // Silently ignore deletion errors
   }
 }
+
+/**
+ * Get the count of music files in the permanent storage directory.
+ */
+export async function getMusicFileCount(): Promise<number> {
+  try {
+    const dir = await getMusicDir();
+    const files = await (FileSystem as any).readDirectoryAsync(dir);
+    return files.filter((f: string) => !f.startsWith('.')).length;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Get the music storage directory path.
+ */
+export async function getMusicStoragePath(): Promise<string> {
+  try {
+    const docDir = (FileSystem as any).documentDirectory;
+    if (!docDir) return '(document directory not available)';
+    return `${docDir}${MUSIC_DIR_NAME}/`;
+  } catch {
+    return '(unable to determine)';
+  }
+}

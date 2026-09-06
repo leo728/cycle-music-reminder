@@ -187,6 +187,8 @@ export async function rescheduleAllNotifications(
   cycles: Cycle[],
   tasks: Task[],
 ): Promise<number> {
+  console.log('[NotificationService] rescheduleAllNotifications called with', cycles.length, 'cycles and', tasks.length, 'tasks');
+
   // 先取消所有旧调度
   await cancelAllScheduledNotifications();
 
@@ -196,17 +198,22 @@ export async function rescheduleAllNotifications(
   // 找到进行中的周期
   const activeCycle = cycles.find((c) => {
     const status = getCycleStatus(c);
+    console.log('[NotificationService] Cycle:', c.name, 'status:', status, 'isActive:', c.isActive);
     return c.isActive && status === 'in_progress';
   });
 
   if (!activeCycle) {
+    console.log('[NotificationService] No active cycle found, skipping scheduling');
     return 0; // 没有进行中的周期
   }
+
+  console.log('[NotificationService] Active cycle:', activeCycle.name, 'startDate:', activeCycle.startDate, 'totalDays:', activeCycle.totalDays);
 
   // 找到该周期中所有开启的任务
   const enabledTasks = tasks.filter(
     (t) => t.cycleId === activeCycle.id && t.isEnabled,
   );
+  console.log('[NotificationService] Enabled tasks for active cycle:', enabledTasks.length);
 
   if (enabledTasks.length === 0) {
     return 0;
@@ -221,14 +228,20 @@ export async function rescheduleAllNotifications(
   const newIds: string[] = [];
   for (const task of enabledTasks) {
     const triggerTime = calculateTriggerTime(activeCycle, task);
-    if (!triggerTime) continue; // 已过期
+    if (!triggerTime) {
+      console.log('[NotificationService] Task', task.name, 'at', task.time, 'on day', task.dayNumber, '- trigger time already passed, skipping');
+      continue; // 已过期
+    }
 
     const triggerMs = triggerTime.getTime();
 
     // 只调度在调度窗口内且不超过周期结束的任务
     if (triggerMs > scheduleWindowEnd || triggerMs > cycleEndMs) {
+      console.log('[NotificationService] Task', task.name, '- trigger time outside window, skipping');
       continue;
     }
+
+    console.log('[NotificationService] Scheduling task', task.name, 'at', task.time, 'on day', task.dayNumber, '- trigger:', triggerTime.toISOString(), 'local:', triggerTime.toString());
 
     const id = await scheduleTaskNotification(activeCycle, task);
     if (id) {
@@ -237,6 +250,7 @@ export async function rescheduleAllNotifications(
   }
 
   scheduledNotificationIds = newIds;
+  console.log('[NotificationService] Total scheduled:', newIds.length, 'notifications');
   return newIds.length;
 }
 
