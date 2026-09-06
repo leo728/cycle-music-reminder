@@ -6,6 +6,7 @@ import {
   getCycleStatus,
   loadTasks,
   saveTasks,
+  deepCopyTasks,
 } from '@/utils/storage';
 
 interface CycleContextType {
@@ -21,6 +22,8 @@ interface CycleContextType {
   updateTask: (task: Task) => Promise<void>;
   deleteTask: (taskId: string) => Promise<void>;
   toggleTaskEnabled: (taskId: string) => Promise<void>;
+  copyPreviousDay: (cycleId: string, dayNumber: number) => Promise<{ success: boolean; count: number }>;
+  copyToAllSubsequentDays: (cycleId: string, dayNumber: number, totalDays: number) => Promise<{ success: boolean; count: number; targetDays: number }>;
 }
 
 const CycleContext = createContext<CycleContextType | null>(null);
@@ -143,6 +146,63 @@ export function CycleProvider({ children }: { children: ReactNode }) {
     setTasks(updated);
   }, []);
 
+  const copyPreviousDay = useCallback(
+    async (cycleId: string, dayNumber: number): Promise<{ success: boolean; count: number }> => {
+      if (dayNumber <= 1) return { success: false, count: 0 };
+
+      const current = await loadTasks();
+      const sourceTasks = current.filter(
+        (t) => t.cycleId === cycleId && t.dayNumber === dayNumber - 1,
+      );
+      if (sourceTasks.length === 0) return { success: false, count: 0 };
+
+      // Remove existing tasks on the target day, then add deep copies
+      const withoutTarget = current.filter(
+        (t) => !(t.cycleId === cycleId && t.dayNumber === dayNumber),
+      );
+      const copied = deepCopyTasks(sourceTasks, cycleId, dayNumber);
+      const updated = [...withoutTarget, ...copied];
+      await saveTasks(updated);
+      setTasks(updated);
+      return { success: true, count: copied.length };
+    },
+    [],
+  );
+
+  const copyToAllSubsequentDays = useCallback(
+    async (
+      cycleId: string,
+      dayNumber: number,
+      totalDays: number,
+    ): Promise<{ success: boolean; count: number; targetDays: number }> => {
+      if (dayNumber >= totalDays) return { success: false, count: 0, targetDays: 0 };
+
+      const current = await loadTasks();
+      const sourceTasks = current.filter(
+        (t) => t.cycleId === cycleId && t.dayNumber === dayNumber,
+      );
+      if (sourceTasks.length === 0) return { success: false, count: 0, targetDays: 0 };
+
+      const targetDays = totalDays - dayNumber;
+
+      // Remove existing tasks on all subsequent days, then add deep copies
+      const withoutTargets = current.filter(
+        (t) => !(t.cycleId === cycleId && t.dayNumber > dayNumber),
+      );
+
+      const allCopied: Task[] = [];
+      for (let d = dayNumber + 1; d <= totalDays; d++) {
+        allCopied.push(...deepCopyTasks(sourceTasks, cycleId, d));
+      }
+
+      const updated = [...withoutTargets, ...allCopied];
+      await saveTasks(updated);
+      setTasks(updated);
+      return { success: true, count: sourceTasks.length, targetDays };
+    },
+    [],
+  );
+
   return (
     <CycleContext.Provider
       value={{
@@ -158,6 +218,8 @@ export function CycleProvider({ children }: { children: ReactNode }) {
         updateTask,
         deleteTask,
         toggleTaskEnabled,
+        copyPreviousDay,
+        copyToAllSubsequentDays,
       }}
     >
       {children}

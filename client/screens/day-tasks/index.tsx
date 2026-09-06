@@ -75,8 +75,17 @@ function TaskCard({
 }
 
 export default function DayTasksScreen() {
-  const { cycles, tasks, refreshTasks, addTask, updateTask, deleteTask, toggleTaskEnabled } =
-    useCycles();
+  const {
+    cycles,
+    tasks,
+    refreshTasks,
+    addTask,
+    updateTask,
+    deleteTask,
+    toggleTaskEnabled,
+    copyPreviousDay,
+    copyToAllSubsequentDays,
+  } = useCycles();
   const params = useSafeSearchParams<{ cycleId: string; dayNumber: number }>();
   const router = useSafeRouter();
 
@@ -91,6 +100,7 @@ export default function DayTasksScreen() {
   const cycleId = cycle?.id ?? '';
   const dayNumber = params.dayNumber ?? 1;
   const dayDate = cycle ? getDayDate(cycle, dayNumber) : '';
+  const totalDays = cycle?.totalDays ?? 1;
 
   const dayTasks = cycleId ? getTasksForDay(tasks, cycleId, dayNumber) : [];
 
@@ -149,6 +159,73 @@ export default function DayTasksScreen() {
   const handleToggle = async (taskId: string) => {
     await toggleTaskEnabled(taskId);
     await refreshTasks();
+  };
+
+  const handleCopyPreviousDay = () => {
+    if (dayNumber <= 1) {
+      Alert.alert('无法复制', '第 1 天没有前一天可复制');
+      return;
+    }
+
+    const sourceTasks = cycleId
+      ? getTasksForDay(tasks, cycleId, dayNumber - 1)
+      : [];
+
+    if (sourceTasks.length === 0) {
+      Alert.alert('无法复制', '前一天还没有任务');
+      return;
+    }
+
+    const doCopy = async () => {
+      const result = await copyPreviousDay(cycleId, dayNumber);
+      if (result.success) {
+        Alert.alert('复制成功', `已复制前一天的 ${result.count} 个任务`);
+      }
+    };
+
+    if (dayTasks.length > 0) {
+      Alert.alert(
+        '替换确认',
+        `当天已有 ${dayTasks.length} 个任务，复制前一天的任务将替换当天现有的全部任务，是否继续？`,
+        [
+          { text: '取消', style: 'cancel' },
+          { text: '替换并复制', onPress: doCopy },
+        ],
+      );
+    } else {
+      doCopy();
+    }
+  };
+
+  const handleCopyToAllSubsequent = () => {
+    if (dayNumber >= totalDays) {
+      Alert.alert('无法复制', '已经是最后一天');
+      return;
+    }
+
+    if (dayTasks.length === 0) {
+      Alert.alert('无法复制', '当天还没有任务，无法复制');
+      return;
+    }
+
+    const targetDays = totalDays - dayNumber;
+
+    Alert.alert(
+      '批量复制确认',
+      `将把当天的 ${dayTasks.length} 个任务复制到第 ${dayNumber + 1} 天 ~ 第 ${totalDays} 天，共 ${targetDays} 天。这些天现有的任务将被替换，是否继续？`,
+      [
+        { text: '取消', style: 'cancel' },
+        {
+          text: '确认复制',
+          onPress: async () => {
+            const result = await copyToAllSubsequentDays(cycleId, dayNumber, totalDays);
+            if (result.success) {
+              Alert.alert('复制成功', `已复制到之后 ${result.targetDays} 天`);
+            }
+          },
+        },
+      ],
+    );
   };
 
   if (!cycle) {
@@ -211,6 +288,46 @@ export default function DayTasksScreen() {
             showsVerticalScrollIndicator={false}
           />
         )}
+
+        {/* Action Buttons */}
+        <View style={styles.actionBtnRow}>
+          <Pressable
+            style={[styles.copyBtn, dayNumber <= 1 && styles.copyBtnDisabled]}
+            onPress={handleCopyPreviousDay}
+            disabled={dayNumber <= 1}
+          >
+            <FontAwesome6
+              name="copy"
+              size={13}
+              color={dayNumber <= 1 ? '#CBD5E1' : '#64748B'}
+              style={{ marginRight: 6 }}
+            />
+            <Text style={[styles.copyBtnText, dayNumber <= 1 && styles.copyBtnTextDisabled]}>
+              复制前一天
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[styles.copyBtn, dayNumber >= totalDays && styles.copyBtnDisabled]}
+            onPress={handleCopyToAllSubsequent}
+            disabled={dayNumber >= totalDays}
+          >
+            <FontAwesome6
+              name="angles-right"
+              size={13}
+              color={dayNumber >= totalDays ? '#CBD5E1' : '#2563EB'}
+              style={{ marginRight: 6 }}
+            />
+            <Text
+              style={[
+                styles.copyBtnText,
+                styles.copyBtnTextBlue,
+                dayNumber >= totalDays && styles.copyBtnTextDisabled,
+              ]}
+            >
+              复制到之后所有天
+            </Text>
+          </Pressable>
+        </View>
 
         {/* Add Button */}
         <Pressable style={styles.addBtn} onPress={handleAdd}>
@@ -389,6 +506,38 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#94A3B8',
     marginTop: 14,
+  },
+  actionBtnRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 12,
+  },
+  copyBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  copyBtnDisabled: {
+    backgroundColor: '#F8FAFC',
+    borderColor: '#F1F5F9',
+    opacity: 0.5,
+  },
+  copyBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#64748B',
+  },
+  copyBtnTextBlue: {
+    color: '#2563EB',
+  },
+  copyBtnTextDisabled: {
+    color: '#CBD5E1',
   },
   addBtn: {
     position: 'absolute',

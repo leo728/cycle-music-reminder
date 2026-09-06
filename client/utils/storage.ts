@@ -189,3 +189,32 @@ export function getTomorrowFirstTask(tasks: Task[], cycle: Cycle): { task: Task;
 
   return { task: firstEnabled, dayNumber: tomorrowDay };
 }
+
+// ─── Task Copy Utilities ─────────────────────────────────────────
+
+/**
+ * Deep copy a single task to a new day with a fresh ID.
+ * Returns a brand-new Task object — no shared references.
+ */
+export function deepCopyTask(task: Task, cycleId: string, dayNumber: number): Task {
+  return {
+    id: `t_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`,
+    cycleId,
+    dayNumber,
+    time: task.time,
+    name: task.name,
+    musicFileName: task.musicFileName,
+    musicPath: task.musicPath,
+    isEnabled: task.isEnabled,
+    isCompleted: false,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Deep copy an array of tasks to a target day.
+ * Each task gets a unique new ID and the target cycleId/dayNumber.
+ */
+export function deepCopyTasks(sourceTasks: Task[], cycleId: string, dayNumber: number): Task[] {
+  return sourceTasks.map((t) => deepCopyTask(t, cycleId, dayNumber));
+}
