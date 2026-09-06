@@ -1,5 +1,5 @@
-import { useCallback, useMemo } from 'react';
-import { View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
+import { useCallback, useMemo, useState, useEffect } from 'react';
+import { View, Text, Pressable, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { Screen } from '@/components/Screen';
 import { useCycles } from '@/contexts/CycleContext';
 import { useSafeRouter } from '@/hooks/useSafeRouter';
@@ -14,17 +14,39 @@ import {
 } from '@/utils/storage';
 import { FontAwesome6 } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
+import { getNotificationPermissionStatus, requestNotificationPermission } from '@/utils/notificationService';
+import { isPlaying, stopMusic } from '@/utils/audioService';
 
 export default function HomeScreen() {
   const { activeCycle, tasks, refreshCycles, refreshTasks } = useCycles();
   const router = useSafeRouter();
+  const [showPermissionBanner, setShowPermissionBanner] = useState(false);
+  const [musicPlaying, setMusicPlaying] = useState(false);
 
   useFocusEffect(
     useCallback(() => {
       refreshCycles();
       refreshTasks();
+      // 检查通知权限状态
+      getNotificationPermissionStatus().then((status) => {
+        if (status !== 'granted') {
+          setShowPermissionBanner(true);
+        } else {
+          setShowPermissionBanner(false);
+        }
+      });
+      // 检查是否正在播放音乐
+      setMusicPlaying(isPlaying());
     }, [refreshCycles, refreshTasks]),
   );
+
+  // 定时检查播放状态
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setMusicPlaying(isPlaying());
+    }, 1000);
+    return () => clearInterval(interval);
+  }, []);
 
   const today = new Date();
   const todayStr = `${today.getMonth() + 1}月${today.getDate()}日`;
@@ -87,8 +109,58 @@ export default function HomeScreen() {
         {/* Header */}
         <View style={styles.header}>
           <Text style={styles.appName}>周期音乐提醒</Text>
+          <View style={styles.headerActions}>
+            {musicPlaying && (
+              <TouchableOpacity
+                style={styles.stopButton}
+                onPress={async () => {
+                  await stopMusic();
+                  setMusicPlaying(false);
+                }}
+              >
+                <FontAwesome6 name="stop" size={16} color="#EF4444" />
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={styles.settingsButton}
+              onPress={() => router.push('/permission-guide')}
+            >
+              <FontAwesome6 name="gear" size={18} color="#8B8FA3" />
+            </TouchableOpacity>
+          </View>
           <Text style={styles.todayDate}>{todayStr}</Text>
         </View>
+
+        {/* Permission Banner */}
+        {showPermissionBanner && (
+          <View style={styles.permissionBanner}>
+            <View style={styles.permissionBannerContent}>
+              <FontAwesome6 name="bell" size={16} color="#F59E0B" />
+              <Text style={styles.permissionBannerText}>
+                开启通知权限，确保到点提醒
+              </Text>
+            </View>
+            <View style={styles.permissionBannerActions}>
+              <TouchableOpacity
+                onPress={() => setShowPermissionBanner(false)}
+                style={styles.permissionDismissBtn}
+              >
+                <Text style={styles.permissionDismissText}>忽略</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={async () => {
+                  const granted = await requestNotificationPermission();
+                  if (granted) {
+                    setShowPermissionBanner(false);
+                  }
+                }}
+                style={styles.permissionEnableBtn}
+              >
+                <Text style={styles.permissionEnableText}>开启</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
 
         {/* Active Cycle Card */}
         <View style={styles.cycleCard}>
@@ -341,6 +413,76 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: '#64748B',
     marginTop: 4,
+  },
+  headerActions: {
+    position: 'absolute',
+    right: 0,
+    top: 4,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  stopButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#FEF2F2',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  settingsButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#F5F7FA',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  permissionBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#FFFBEB',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: '#FDE68A',
+  },
+  permissionBannerContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  permissionBannerText: {
+    fontSize: 13,
+    color: '#92400E',
+    marginLeft: 8,
+    flex: 1,
+  },
+  permissionBannerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  permissionDismissBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  permissionDismissText: {
+    fontSize: 13,
+    color: '#92400E',
+  },
+  permissionEnableBtn: {
+    backgroundColor: '#F59E0B',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  permissionEnableText: {
+    fontSize: 13,
+    color: '#FFFFFF',
+    fontWeight: '600',
   },
   cycleCard: {
     backgroundColor: '#FFFFFF',

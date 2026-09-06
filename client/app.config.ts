@@ -67,6 +67,14 @@ export default ({ config }: ConfigContext): ExpoConfig => {
           "microphonePermission": `周期音乐提醒App需要访问麦克风以录制视频声音。`,
           "recordAudioAndroid": true
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#2563EB",
+          "sounds": []
+        }
       ]
     ],
     "experiments": {

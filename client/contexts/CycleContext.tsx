@@ -8,6 +8,7 @@ import {
   saveTasks,
   deepCopyTasks,
 } from '@/utils/storage';
+import { rescheduleAllNotifications } from '@/utils/notificationService';
 
 interface CycleContextType {
   cycles: Cycle[];
@@ -55,6 +56,22 @@ export function CycleProvider({ children }: { children: ReactNode }) {
     };
     init();
   }, []);
+
+  // 数据变化时自动重新调度通知
+  const isInitialSchedule = useRef(true);
+  useEffect(() => {
+    // 跳过初始加载时的调度（由 Provider 中的初始化调度处理）
+    if (isInitialSchedule.current) {
+      isInitialSchedule.current = false;
+      return;
+    }
+    if (isLoading) return;
+    // 延迟调度，确保数据已稳定
+    const timer = setTimeout(() => {
+      rescheduleAllNotifications(cycles, tasks).catch(() => { /* ignore */ });
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [cycles, tasks, isLoading]);
 
   const activeCycle = cycles.find((c) => {
     const status = getCycleStatus(c);

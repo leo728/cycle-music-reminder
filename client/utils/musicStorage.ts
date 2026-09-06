@@ -10,7 +10,7 @@ const MUSIC_DIR_NAME = 'music';
  * Creates the directory if it doesn't exist.
  */
 async function getMusicDir(): Promise<string> {
-  const docDir = FileSystem.documentDirectory;
+  const docDir = (FileSystem as any).documentDirectory;
   if (!docDir) {
     throw new Error('Document directory not available');
   }
