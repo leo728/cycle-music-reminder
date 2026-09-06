@@ -133,9 +133,14 @@ async function scheduleTaskNotification(
 ): Promise<string | null> {
   try {
     const triggerTime = calculateTriggerTime(cycle, task);
-    if (!triggerTime) return null; // 已过期，跳过
+    if (!triggerTime) {
+      console.log(`[Notification] Skipping task ${task.id} (${task.name}) - trigger time is in the past`);
+      return null; // 已过期，跳过
+    }
 
     const notificationId = `task-${task.id}`;
+    console.log(`[Notification] Scheduling task ${task.id} (${task.name}) for ${triggerTime.toString()}`);
+    console.log(`[Notification] Trigger timestamp: ${triggerTime.getTime()}, Now: ${Date.now()}, Diff: ${triggerTime.getTime() - Date.now()}ms`);
 
     const notificationData: TaskNotificationData = {
       taskId: task.id,
@@ -148,7 +153,7 @@ async function scheduleTaskNotification(
       type: 'task_trigger',
     };
 
-    await Notifications.scheduleNotificationAsync({
+    const result = await Notifications.scheduleNotificationAsync({
       identifier: notificationId,
       content: {
         title: cycle.name,
@@ -168,9 +173,10 @@ async function scheduleTaskNotification(
       },
     });
 
+    console.log(`[Notification] Scheduled notification ${notificationId}, result: ${result}`);
     return notificationId;
   } catch (error) {
-    console.error('Failed to schedule notification:', error);
+    console.error('[Notification] Failed to schedule notification:', error);
     return null;
   }
 }

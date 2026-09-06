@@ -116,10 +116,18 @@ export default function DiagnosticScreen() {
         scheduledNotifications: scheduled.slice(0, 5).map((s) => {
           const trigger = s.trigger as Record<string, unknown> | null;
           let triggerTime = 'unknown';
-          if (trigger && trigger.type === 'date' && trigger.date) {
-            triggerTime = new Date(trigger.date as string).toString();
-          } else if (trigger) {
-            triggerTime = String(trigger.type ?? 'unknown');
+          if (trigger) {
+            const triggerType = trigger.type as string;
+            const triggerDate = trigger.date;
+            if (triggerDate) {
+              // Handle both number (timestamp) and string formats
+              const dateObj = typeof triggerDate === 'number'
+                ? new Date(triggerDate)
+                : new Date(triggerDate as string);
+              triggerTime = `${triggerType}: ${dateObj.toString()}`;
+            } else {
+              triggerTime = `type=${triggerType}, date=${String(triggerDate)}`;
+            }
           }
           return {
             identifier: s.identifier,
