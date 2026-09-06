@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -7,10 +7,12 @@ import {
   FlatList,
   Alert,
 } from 'react-native';
+import { Audio } from 'expo-av';
 import { Screen } from '@/components/Screen';
 import { useCycles } from '@/contexts/CycleContext';
 import { useSafeSearchParams, useSafeRouter } from '@/hooks/useSafeRouter';
 import { getTasksForDay, getDayDate, formatDateShort, hasTimeConflict } from '@/utils/storage';
+import { checkMusicFileExists } from '@/utils/musicStorage';
 import { FontAwesome6 } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
 import type { Task } from '@/types';
@@ -25,11 +27,13 @@ function TaskCard({
   onEdit,
   onDelete,
   onToggle,
+  onPlayMusic,
 }: {
   task: Task;
   onEdit: () => void;
   onDelete: () => void;
   onToggle: () => void;
+  onPlayMusic: (path: string) => void;
 }) {
   const handleDelete = () => {
     Alert.alert('删除任务', '确定删除这个任务吗？', [
@@ -37,6 +41,8 @@ function TaskCard({
       { text: '确定删除', style: 'destructive', onPress: onDelete },
     ]);
   };
+
+  const hasMusic = task.musicFileName && task.musicPath;
 
   return (
     <View style={[styles.taskCard, !task.isEnabled && styles.taskCardDisabled]}>
@@ -50,12 +56,27 @@ function TaskCard({
           <Text style={[styles.taskName, !task.isEnabled && styles.taskNameDisabled]}>
             {task.name}
           </Text>
-          <Text style={styles.taskStatus}>
-            {task.isEnabled ? '已开启' : '已关闭'}
-          </Text>
+          <View style={styles.taskMeta}>
+            <Text style={styles.taskStatus}>
+              {task.isEnabled ? '已开启' : '已关闭'}
+            </Text>
+            {hasMusic && (
+              <View style={styles.musicBadge}>
+                <FontAwesome6 name="music" size={10} color={task.isEnabled ? '#2563EB' : '#94A3B8'} />
+                <Text style={[styles.musicBadgeText, !task.isEnabled && styles.musicBadgeTextDisabled]} numberOfLines={1}>
+                  {task.musicFileName}
+                </Text>
+              </View>
+            )}
+          </View>
         </View>
       </View>
       <View style={styles.taskCardRight}>
+        {hasMusic && task.isEnabled && (
+          <Pressable onPress={() => onPlayMusic(task.musicPath)} hitSlop={8} style={styles.playBtn}>
+            <FontAwesome6 name="play" size={14} color="#2563EB" />
+          </Pressable>
+        )}
         <Pressable onPress={onToggle} hitSlop={8} style={styles.toggleBtn}>
           <FontAwesome6
             name={task.isEnabled ? 'toggle-on' : 'toggle-off'}
@@ -91,10 +112,23 @@ export default function DayTasksScreen() {
 
   const [modalVisible, setModalVisible] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const soundRef = useRef<Audio.Sound | null>(null);
 
   useFocusEffect(() => {
     refreshTasks();
   });
+
+  // Cleanup sound on unmount
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        if (soundRef.current) {
+          soundRef.current.unloadAsync().catch(() => undefined);
+          soundRef.current = null;
+        }
+      };
+    }, [])
+  );
 
   const cycle = cycles.find((c) => c.id === params.cycleId);
   const cycleId = cycle?.id ?? '';
@@ -119,7 +153,12 @@ export default function DayTasksScreen() {
     setModalVisible(true);
   };
 
-  const handleSave = async (data: { time: string; name: string; isEnabled: boolean }) => {
+  const handleSave = async (data: {
+    time: string;
+    name: string;
+    isEnabled: boolean;
+    music: { musicFileName: string; musicPath: string };
+  }) => {
     if (!cycleId) return;
 
     if (editingTask) {
@@ -128,6 +167,8 @@ export default function DayTasksScreen() {
         time: data.time,
         name: data.name,
         isEnabled: data.isEnabled,
+        musicFileName: data.music.musicFileName,
+        musicPath: data.music.musicPath,
       });
     } else {
       const taskId = generateTaskId();
@@ -137,8 +178,8 @@ export default function DayTasksScreen() {
         dayNumber,
         time: data.time,
         name: data.name,
-        musicFileName: '',
-        musicPath: '',
+        musicFileName: data.music.musicFileName,
+        musicPath: data.music.musicPath,
         isEnabled: data.isEnabled,
         isCompleted: false,
         createdAt: new Date().toISOString(),
@@ -154,6 +195,37 @@ export default function DayTasksScreen() {
   const handleDelete = async (taskId: string) => {
     await deleteTask(taskId);
     await refreshTasks();
+  };
+
+  const handlePlayMusic = async (musicPath: string) => {
+    try {
+      // Check if file exists
+      const exists = await checkMusicFileExists(musicPath);
+      if (!exists) {
+        Alert.alert('提示', '音乐文件不可用，请重新选择音乐。');
+        return;
+      }
+
+      // Stop any current playback
+      if (soundRef.current) {
+        await soundRef.current.stopAsync();
+        await soundRef.current.unloadAsync();
+        soundRef.current = null;
+      }
+
+      const { sound } = await Audio.Sound.createAsync(
+        { uri: musicPath },
+        { shouldPlay: true, isLooping: false },
+        (status) => {
+          if (status.isLoaded && status.didJustFinish) {
+            soundRef.current = null;
+          }
+        }
+      );
+      soundRef.current = sound;
+    } catch {
+      Alert.alert('提示', '音乐文件不可用，请重新选择音乐。');
+    }
   };
 
   const handleToggle = async (taskId: string) => {
@@ -282,6 +354,7 @@ export default function DayTasksScreen() {
                 onEdit={() => handleEdit(item)}
                 onDelete={() => handleDelete(item.id)}
                 onToggle={() => handleToggle(item.id)}
+                onPlayMusic={handlePlayMusic}
               />
             )}
             contentContainerStyle={styles.listContent}
@@ -472,10 +545,42 @@ const styles = StyleSheet.create({
     color: '#94A3B8',
     marginTop: 2,
   },
+  taskMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+  },
+  musicBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EFF6FF',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    gap: 4,
+    maxWidth: 120,
+  },
+  musicBadgeText: {
+    fontSize: 11,
+    color: '#2563EB',
+    fontWeight: '500',
+  },
+  musicBadgeTextDisabled: {
+    color: '#94A3B8',
+  },
   taskCardRight: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+  },
+  playBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: '#EFF6FF',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   toggleBtn: {
     padding: 4,

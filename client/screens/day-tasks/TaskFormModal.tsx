@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -11,16 +11,25 @@ import {
   Keyboard,
   KeyboardAvoidingView,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import DateTimePicker from '@react-native-community/datetimepicker';
+import * as DocumentPicker from 'expo-document-picker';
+import { Audio } from 'expo-av';
 import { FontAwesome6 } from '@expo/vector-icons';
 import type { Task } from '@/types';
+import { saveMusicFile } from '@/utils/musicStorage';
+
+interface MusicData {
+  musicFileName: string;
+  musicPath: string;
+}
 
 interface TaskFormModalProps {
   visible: boolean;
   editingTask: Task | null;
   onClose: () => void;
-  onSave: (data: { time: string; name: string; isEnabled: boolean }) => void;
+  onSave: (data: { time: string; name: string; isEnabled: boolean; music: MusicData }) => void;
   onCheckTimeConflict: (time: string, excludeTaskId?: string) => boolean;
 }
 
@@ -57,7 +66,7 @@ export default function TaskFormModal({
 interface TaskFormContentProps {
   editingTask: Task | null;
   onClose: () => void;
-  onSave: (data: { time: string; name: string; isEnabled: boolean }) => void;
+  onSave: (data: { time: string; name: string; isEnabled: boolean; music: MusicData }) => void;
   onCheckTimeConflict: (time: string, excludeTaskId?: string) => boolean;
 }
 
@@ -85,6 +94,33 @@ function TaskFormContent({
   const [isEnabled, setIsEnabled] = useState(editingTask?.isEnabled ?? true);
   const [showTimePicker, setShowTimePicker] = useState(false);
 
+  // Music state
+  const [musicFileName, setMusicFileName] = useState(editingTask?.musicFileName ?? '');
+  const [musicPath, setMusicPath] = useState(editingTask?.musicPath ?? '');
+  const [isPickingMusic, setIsPickingMusic] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const soundRef = useRef<Audio.Sound | null>(null);
+
+  // Cleanup sound on unmount
+  useEffect(() => {
+    return () => {
+      if (soundRef.current) {
+        soundRef.current.unloadAsync().catch(() => undefined);
+        soundRef.current = null;
+      }
+    };
+  }, []);
+
+  // Stop playback when closing modal
+  const handleClose = useCallback(() => {
+    if (soundRef.current) {
+      soundRef.current.unloadAsync().catch(() => undefined);
+      soundRef.current = null;
+    }
+    setIsPlaying(false);
+    onClose();
+  }, [onClose]);
+
   const handleTimeChange = useCallback((_: unknown, selectedTime?: Date) => {
     if (Platform.OS === 'android') {
       setShowTimePicker(false);
@@ -97,6 +133,95 @@ function TaskFormContent({
   const hours = time.getHours();
   const minutes = time.getMinutes();
   const timeStr = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`;
+
+  // Pick music file
+  const handlePickMusic = useCallback(async () => {
+    try {
+      setIsPickingMusic(true);
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ['audio/*'],
+        copyToCacheDirectory: true,
+        multiple: false,
+      });
+
+      if (result.canceled || !result.assets || result.assets.length === 0) {
+        setIsPickingMusic(false);
+        return;
+      }
+
+      const asset = result.assets[0];
+      const originalName = asset.name || 'unknown_audio';
+
+      // Stop any current playback
+      if (soundRef.current) {
+        await soundRef.current.unloadAsync();
+        soundRef.current = null;
+        setIsPlaying(false);
+      }
+
+      // Copy to permanent storage
+      const { permanentPath, fileName } = await saveMusicFile(asset.uri, originalName);
+
+      setMusicFileName(fileName);
+      setMusicPath(permanentPath);
+      setIsPickingMusic(false);
+    } catch (error) {
+      console.error('Failed to pick music:', error);
+      setIsPickingMusic(false);
+      Alert.alert('提示', '选择音乐文件失败，请重试。');
+    }
+  }, []);
+
+  // Preview/play music
+  const handlePreview = useCallback(async () => {
+    if (!musicPath) return;
+
+    if (isPlaying && soundRef.current) {
+      // Stop playback
+      await soundRef.current.stopAsync();
+      await soundRef.current.unloadAsync();
+      soundRef.current = null;
+      setIsPlaying(false);
+      return;
+    }
+
+    try {
+      // Unload previous sound if any
+      if (soundRef.current) {
+        await soundRef.current.unloadAsync();
+        soundRef.current = null;
+      }
+
+      const { sound } = await Audio.Sound.createAsync(
+        { uri: musicPath },
+        { shouldPlay: true, isLooping: false },
+        (status) => {
+          if (status.isLoaded && status.didJustFinish) {
+            setIsPlaying(false);
+            soundRef.current = null;
+          }
+        }
+      );
+      soundRef.current = sound;
+      setIsPlaying(true);
+    } catch (error) {
+      console.error('Failed to play music:', error);
+      Alert.alert('提示', '音乐文件不可用，请重新选择音乐。');
+      setIsPlaying(false);
+    }
+  }, [musicPath, isPlaying]);
+
+  // Remove selected music
+  const handleRemoveMusic = useCallback(() => {
+    // Stop playback if playing
+    if (soundRef.current) {
+      soundRef.current.unloadAsync().catch(() => undefined);
+      soundRef.current = null;
+      setIsPlaying(false);
+    }
+    setMusicFileName('');
+    setMusicPath('');
+  }, []);
 
   const handleSave = useCallback(() => {
     const trimmedName = name.trim();
@@ -111,8 +236,22 @@ function TaskFormContent({
       return;
     }
 
-    onSave({ time: timeStr, name: trimmedName, isEnabled });
-  }, [name, timeStr, isEnabled, editingTask, onSave, onCheckTimeConflict]);
+    // Stop any playback before saving
+    if (soundRef.current) {
+      soundRef.current.unloadAsync().catch(() => undefined);
+      soundRef.current = null;
+    }
+
+    onSave({
+      time: timeStr,
+      name: trimmedName,
+      isEnabled,
+      music: {
+        musicFileName,
+        musicPath,
+      },
+    });
+  }, [name, timeStr, isEnabled, musicFileName, musicPath, editingTask, onSave, onCheckTimeConflict]);
 
   const isEditing = editingTask !== null;
 
@@ -121,7 +260,7 @@ function TaskFormContent({
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.title}>{isEditing ? '编辑任务' : '新增任务'}</Text>
-        <Pressable onPress={onClose} style={styles.closeBtn}>
+        <Pressable onPress={handleClose} style={styles.closeBtn}>
           <FontAwesome6 name="xmark" size={18} color="#64748B" />
         </Pressable>
       </View>
@@ -166,12 +305,52 @@ function TaskFormContent({
         />
       </View>
 
-      {/* Music placeholder */}
+      {/* Music selection */}
       <View style={styles.fieldGroup}>
         <Text style={styles.label}>音乐</Text>
-        <View style={styles.musicPlaceholder}>
-          <FontAwesome6 name="music" size={14} color="#CBD5E1" />
-          <Text style={styles.musicPlaceholderText}>音乐功能将在后续版本开放</Text>
+        <View style={styles.musicSection}>
+          {musicFileName ? (
+            <View style={styles.musicSelected}>
+              <View style={styles.musicInfo}>
+                <FontAwesome6 name="music" size={14} color="#2563EB" />
+                <Text style={styles.musicFileName} numberOfLines={1}>
+                  {musicFileName}
+                </Text>
+              </View>
+              <View style={styles.musicActions}>
+                <Pressable style={styles.musicActionBtn} onPress={handlePreview}>
+                  {isPlaying ? (
+                    <View style={styles.musicActionContent}>
+                      <ActivityIndicator size="small" color="#2563EB" />
+                      <Text style={styles.musicActionText}>停止</Text>
+                    </View>
+                  ) : (
+                    <View style={styles.musicActionContent}>
+                      <FontAwesome6 name="play" size={12} color="#2563EB" />
+                      <Text style={styles.musicActionText}>试听</Text>
+                    </View>
+                  )}
+                </Pressable>
+                <Pressable style={styles.musicRemoveBtn} onPress={handleRemoveMusic}>
+                  <FontAwesome6 name="xmark" size={12} color="#EF4444" />
+                </Pressable>
+              </View>
+            </View>
+          ) : (
+            <Pressable style={styles.musicPickBtn} onPress={handlePickMusic} disabled={isPickingMusic}>
+              {isPickingMusic ? (
+                <ActivityIndicator size="small" color="#2563EB" />
+              ) : (
+                <>
+                  <FontAwesome6 name="folder-open" size={14} color="#2563EB" />
+                  <Text style={styles.musicPickText}>选择音乐</Text>
+                </>
+              )}
+            </Pressable>
+          )}
+          {!musicFileName && !isPickingMusic && (
+            <Text style={styles.musicHint}>支持 MP3、WAV、M4A、AAC 格式</Text>
+          )}
         </View>
       </View>
 
@@ -198,7 +377,7 @@ function TaskFormContent({
 
       {/* Actions */}
       <View style={styles.actions}>
-        <Pressable style={styles.cancelBtn} onPress={onClose}>
+        <Pressable style={styles.cancelBtn} onPress={handleClose}>
           <Text style={styles.cancelBtnText}>取消</Text>
         </Pressable>
         <Pressable style={styles.saveBtn} onPress={handleSave}>
@@ -279,19 +458,84 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#E2E8F0',
   },
-  musicPlaceholder: {
+  musicSection: {
+    gap: 8,
+  },
+  musicPickBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#EFF6FF',
     borderRadius: 12,
     padding: 14,
     borderWidth: 1,
-    borderColor: '#F1F5F9',
+    borderColor: '#BFDBFE',
+    gap: 8,
+    justifyContent: 'center',
+  },
+  musicPickText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#2563EB',
+  },
+  musicHint: {
+    fontSize: 12,
+    color: '#94A3B8',
+    textAlign: 'center',
+  },
+  musicSelected: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  musicInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+    gap: 8,
+    marginRight: 8,
+  },
+  musicFileName: {
+    fontSize: 14,
+    color: '#0F172A',
+    fontWeight: '500',
+    flex: 1,
+  },
+  musicActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
     gap: 8,
   },
-  musicPlaceholderText: {
-    fontSize: 14,
-    color: '#CBD5E1',
+  musicActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#EFF6FF',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    gap: 4,
+  },
+  musicActionContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  musicActionText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#2563EB',
+  },
+  musicRemoveBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#FEF2F2',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   toggleRow: {
     flexDirection: 'row',

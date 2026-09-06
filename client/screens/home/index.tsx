@@ -166,15 +166,31 @@ export default function HomeScreen() {
                       {task.time}
                     </Text>
                   </View>
-                  <Text
-                    style={[
-                      styles.miniTaskName,
-                      !task.isEnabled && styles.miniTaskNameDisabled,
-                    ]}
-                    numberOfLines={1}
-                  >
-                    {task.name}
-                  </Text>
+                  <View style={styles.miniTaskInfo}>
+                    <Text
+                      style={[
+                        styles.miniTaskName,
+                        !task.isEnabled && styles.miniTaskNameDisabled,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {task.name}
+                    </Text>
+                    {task.musicFileName ? (
+                      <View style={styles.miniTaskMusic}>
+                        <FontAwesome6 name="music" size={9} color={task.isEnabled ? '#2563EB' : '#94A3B8'} />
+                        <Text
+                          style={[
+                            styles.miniTaskMusicText,
+                            !task.isEnabled && styles.miniTaskMusicTextDisabled,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {task.musicFileName}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
                   <View
                     style={[
                       styles.miniTaskStatus,
@@ -483,13 +499,28 @@ const styles = StyleSheet.create({
     color: '#CBD5E1',
   },
   miniTaskName: {
-    flex: 1,
     fontSize: 15,
     fontWeight: '500',
     color: '#0F172A',
-    marginHorizontal: 8,
   },
   miniTaskNameDisabled: {
+    color: '#94A3B8',
+  },
+  miniTaskInfo: {
+    flex: 1,
+    marginHorizontal: 8,
+  },
+  miniTaskMusic: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    marginTop: 2,
+  },
+  miniTaskMusicText: {
+    fontSize: 11,
+    color: '#2563EB',
+  },
+  miniTaskMusicTextDisabled: {
     color: '#94A3B8',
   },
   miniTaskStatus: {

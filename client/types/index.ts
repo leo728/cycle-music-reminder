@@ -9,15 +9,15 @@ export interface Cycle {
   createdAt: string; // ISO timestamp
 }
 
-// Task type - Phase 2 implementation
+// Task type - Phase 2 implementation, Phase 4 music support
 export interface Task {
   id: string;
   cycleId: string;
   dayNumber: number; // 1-based day index
   time: string; // HH:MM (24h)
   name: string;
-  musicFileName: string; // reserved for Phase 4
-  musicPath: string; // reserved for Phase 4
+  musicFileName: string; // display name, e.g. "morning.mp3" (empty if no music)
+  musicPath: string; // permanent storage path for playback (empty if no music)
   isEnabled: boolean;
   isCompleted: boolean;
   createdAt: string; // ISO timestamp
