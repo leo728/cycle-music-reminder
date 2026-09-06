@@ -11,7 +11,7 @@ import { Audio } from 'expo-av';
 import { Screen } from '@/components/Screen';
 import { useCycles } from '@/contexts/CycleContext';
 import { useSafeSearchParams, useSafeRouter } from '@/hooks/useSafeRouter';
-import { getTasksForDay, getDayDate, formatDateShort, hasTimeConflict } from '@/utils/storage';
+import { getTasksForDay, getDayDate, formatDateShort, hasTimeConflict, loadTasks } from '@/utils/storage';
 import { checkMusicFileExists } from '@/utils/musicStorage';
 import { FontAwesome6 } from '@expo/vector-icons';
 import { useFocusEffect } from 'expo-router';
@@ -233,14 +233,16 @@ export default function DayTasksScreen() {
     await refreshTasks();
   };
 
-  const handleCopyPreviousDay = () => {
+  const handleCopyPreviousDay = async () => {
     if (dayNumber <= 1) {
       Alert.alert('无法复制', '第 1 天没有前一天可复制');
       return;
     }
 
+    // Read directly from storage to avoid stale state issues
+    const freshTasks = await loadTasks();
     const sourceTasks = cycleId
-      ? getTasksForDay(tasks, cycleId, dayNumber - 1)
+      ? getTasksForDay(freshTasks, cycleId, dayNumber - 1)
       : [];
 
     if (sourceTasks.length === 0) {
@@ -251,14 +253,22 @@ export default function DayTasksScreen() {
     const doCopy = async () => {
       const result = await copyPreviousDay(cycleId, dayNumber);
       if (result.success) {
+        await refreshTasks();
         Alert.alert('复制成功', `已复制前一天的 ${result.count} 个任务`);
+      } else {
+        Alert.alert('复制失败', '无法复制前一天的任务，请重试');
       }
     };
 
-    if (dayTasks.length > 0) {
+    // Check current day tasks from fresh data
+    const currentDayTasks = cycleId
+      ? getTasksForDay(freshTasks, cycleId, dayNumber)
+      : [];
+
+    if (currentDayTasks.length > 0) {
       Alert.alert(
         '替换确认',
-        `当天已有 ${dayTasks.length} 个任务，复制前一天的任务将替换当天现有的全部任务，是否继续？`,
+        `当天已有 ${currentDayTasks.length} 个任务，复制前一天的任务将替换当天现有的全部任务，是否继续？`,
         [
           { text: '取消', style: 'cancel' },
           { text: '替换并复制', onPress: doCopy },
@@ -269,13 +279,19 @@ export default function DayTasksScreen() {
     }
   };
 
-  const handleCopyToAllSubsequent = () => {
+  const handleCopyToAllSubsequent = async () => {
     if (dayNumber >= totalDays) {
       Alert.alert('无法复制', '已经是最后一天');
       return;
     }
 
-    if (dayTasks.length === 0) {
+    // Read directly from storage to avoid stale state issues
+    const freshTasks = await loadTasks();
+    const currentDayTasks = cycleId
+      ? getTasksForDay(freshTasks, cycleId, dayNumber)
+      : [];
+
+    if (currentDayTasks.length === 0) {
       Alert.alert('无法复制', '当天还没有任务，无法复制');
       return;
     }
@@ -284,7 +300,7 @@ export default function DayTasksScreen() {
 
     Alert.alert(
       '批量复制确认',
-      `将把当天的 ${dayTasks.length} 个任务复制到第 ${dayNumber + 1} 天 ~ 第 ${totalDays} 天，共 ${targetDays} 天。这些天现有的任务将被替换，是否继续？`,
+      `将把当天的 ${currentDayTasks.length} 个任务复制到第 ${dayNumber + 1} 天 ~ 第 ${totalDays} 天，共 ${targetDays} 天。这些天现有的任务将被替换，是否继续？`,
       [
         { text: '取消', style: 'cancel' },
         {
@@ -292,7 +308,10 @@ export default function DayTasksScreen() {
           onPress: async () => {
             const result = await copyToAllSubsequentDays(cycleId, dayNumber, totalDays);
             if (result.success) {
+              await refreshTasks();
               Alert.alert('复制成功', `已复制到之后 ${result.targetDays} 天`);
+            } else {
+              Alert.alert('复制失败', '无法复制到之后的天数，请重试');
             }
           },
         },
