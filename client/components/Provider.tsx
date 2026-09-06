@@ -1,4 +1,5 @@
 import { AuthProvider } from '@/contexts/AuthContext';
+import { CycleProvider } from '@/contexts/CycleContext';
 import { type ReactNode } from 'react';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { WebOnlyColorSchemeUpdater } from './ColorSchemeUpdater';
@@ -11,7 +12,9 @@ function Provider({ children }: { children: ReactNode }) {
       <AuthProvider>
         <GestureHandlerRootView style={{ flex: 1 }}>
           <HeroUINativeProvider>
-            {children}
+            <CycleProvider>
+              {children}
+            </CycleProvider>
           </HeroUINativeProvider>
         </GestureHandlerRootView>
       </AuthProvider>
